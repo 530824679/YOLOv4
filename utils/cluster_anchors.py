@@ -6,7 +6,45 @@
 # @File    : generator_anchors.py
 # Description :generator k anchors
 # --------------------------------------
+"""
+Boxes:
+[[  5   5]
+ [  7  15]
+ [ 16  41]
+ [ 18  43]
+ [ 19  47]
+ [ 28 104]]
+Accuracy: 85.75%
 
+Boxes:
+[[  6   7]
+ [ 18  43]
+ [ 20  46]
+ [ 22  62]
+ [ 28  85]
+ [ 28 109]]
+Accuracy: 83.69%
+
+Boxes:
+[[  6   7]
+ [ 17  42]
+ [ 19  44]
+ [ 19  49]
+ [ 23  67]
+ [ 28 105]]
+Accuracy: 84.48%
+
+Boxes:
+[[  5   5]
+ [  7  15]
+ [ 17  41]
+ [ 18  44]
+ [ 19  49]
+ [ 28 104]]
+Accuracy: 85.78%
+"""
+import os
+import math
 import xml.etree.ElementTree as ET
 import numpy as np
 import glob
@@ -80,35 +118,24 @@ def load_dataset(path, target_size=None):
     :return: list width and height
     """
     list_wh = []
+    file_list = os.listdir(path)
+    for txt in file_list:
+        print(txt)
+        label_path = os.path.join(path, txt)
+        lines = [line.rstrip() for line in open(label_path)]
+        for line in lines:
+            data = line.split(' ')
+            data[4:] = [float(t) for t in data[4:]]
+            width = math.sqrt(math.pow((data[17] - data[26]), 2) + math.pow((data[16] - data[25]), 2))
+            length = math.sqrt(math.pow((data[17] - data[20]), 2) + math.pow((data[16] - data[19]), 2))
 
-    for xml_file in glob.glob("{}/*xml".format(path)):
-        tree = ET.parse(xml_file)
-        root = tree.getroot()
+            width = int(width / 0.1)
+            length = int(length / 0.1)
+            if width <= 0 or length <= 0 or width > 1000 or length > 1000:
+                continue
 
-        image_height = int(root.findtext("size/height"))
-        image_width = int(root.findtext("size/width"))
+            list_wh.append([width, length])
 
-        objects = root.findall('object')
-        for object in objects:
-            bndbox = object.find('bndbox')
-            xmin = float(bndbox.find('xmin').text)
-            ymin = float(bndbox.find('ymin').text)
-            xmax = float(bndbox.find('xmax').text)
-            ymax = float(bndbox.find('ymax').text)
-
-            width = (xmax - xmin)
-            height = (ymax - ymin)
-
-            # get k-means anchors on the resized target image size, keep the original aspect ratio
-            if target_size is not None:
-                resize_ratio = min(target_size[0] / image_width, target_size[1] / image_height)
-                width *= resize_ratio
-                height *= resize_ratio
-
-                # get k-means anchors on the original image size
-                list_wh.append([width, height])
-            else:
-                list_wh.append([width, height])
     return np.array(list_wh)
 
 def plot_data(data, out, k, index):
@@ -118,6 +145,7 @@ def plot_data(data, out, k, index):
         lab = 'cluster' + str(i + 1)
         plt.scatter(data[index == i, 0], data[index == i, 1], s=10, c=color[i], marker=mark[i], label=lab)
         # draw the centers
+    out = np.array(out)
     plt.scatter(out[:, 0], out[:, 1], s=250, marker="*", c="red", label="cluster center")
     plt.legend()
     plt.grid()
@@ -125,8 +153,8 @@ def plot_data(data, out, k, index):
 
 
 if __name__ == '__main__':
-    path = 'D:\\BaiduNetdiskDownload\\VOC2028\\VOC2028\\Annotations'
-    cluster_num = 5
+    path = '/home/chenwei/HDD/livox_dl/LIVOX/object/training/label'
+    cluster_num = 6
 
     data = load_dataset(path)
     anchors, cluster_index = kmeans(data, cluster_num)
@@ -135,10 +163,6 @@ if __name__ == '__main__':
 
     print('Boxes:')
     print(np.array(anchors))
-    print("Accuracy: {:.2f}%".format(avg_iou(data, anchors) * 100))
-
-    ratios = np.around(anchors[:, 0] / anchors[:, 1], decimals=2).tolist()
-    print("Before Sort Ratios:\n {}".format(ratios))
-    print("After Sort Ratios:\n {}".format(sorted(ratios)))
+    print("Accuracy: {:.2f}%".format(avg_iou(data, np.array(anchors)) * 100))
 
     plot_data(data, anchors, cluster_num, cluster_index)

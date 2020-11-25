@@ -14,6 +14,7 @@ if ros_path in sys.path:
 import cv2
 import os
 import math
+from PIL import Image
 import numpy as np
 import tensorflow as tf
 from xml.etree import ElementTree as ET
@@ -48,7 +49,7 @@ class Dataset(object):
 
         pts = self.load_pcd(pcd_path)
         roi_pts = self.filter_roi(pts)
-        bev_image = self.transform_bev_image(roi_pts)
+        bev_image = self.transform_bev_image(roi_pts, data_num)
 
         return bev_image
 
@@ -58,10 +59,9 @@ class Dataset(object):
             raise KeyError("%s does not exist ... " %txt_path)
 
         label = self.load_label(txt_path)
-        bev_label = self.transform_bev_label(label)
-        encoded_label = self.encode(bev_label)
+        bev_label = self.transform_bev_label(label, data_num)
 
-        return encoded_label
+        return bev_label
 
     def load_pcd(self, pcd_path):
         pts = []
@@ -93,70 +93,68 @@ class Dataset(object):
 
         return pts
 
-    def transform_bev_image(self, pts):
-        bev_height = (self.x_max - self.x_min) / self.voxel_size
-        bev_width = (self.y_max - self.y_min) / self.voxel_size
+    def scale_to_255(self, a, min, max, dtype=np.uint8):
+        return (((a - min) / float(max - min)) * 255).astype(dtype)
 
-        range_x = data_params['x_max'] - data_params['x_min']
-        range_y = data_params['y_max'] - data_params['y_min']
+    def transform_bev_image(self, pts, data_num):
+        x_points = pts[:, 0]
+        y_points = pts[:, 1]
+        z_points = pts[:, 2]
+        i_points = pts[:, 3]
 
-        # Discretize Feature Map
-        point_cloud = np.copy(pts)
-        point_cloud[:, 0] = np.int_(np.floor(point_cloud[:, 0] / range_x * (bev_height - 1)))
-        point_cloud[:, 1] = np.int_(np.floor(point_cloud[:, 1] / range_y * (bev_width - 1)) + bev_width / 2)
+        # convert to pixel position values
+        x_img = (-y_points / self.voxel_size).astype(np.int32)  # x axis is -y in LIDAR
+        y_img = (-x_points / self.voxel_size).astype(np.int32)  # y axis is -x in LIDAR
 
-        # sort-3times
-        indices = np.lexsort((-point_cloud[:, 2], point_cloud[:, 1], point_cloud[:, 0]))
-        point_cloud = point_cloud[indices]
+        # shift pixels to (0, 0)
+        x_img -= int(np.floor(self.y_min / self.voxel_size))
+        y_img += int(np.ceil(self.x_max / self.voxel_size))
+
+        # clip height value
+        pixel_values = np.clip(a=z_points, a_min=self.z_min, a_max=self.z_max)
+
+        # rescale the height values
+        pixel_values = self.scale_to_255(pixel_values, min=self.z_min, max=self.z_max)
+
+        # initalize empty array
+        x_max = 1 + math.ceil((self.y_max - self.y_min) / self.voxel_size)
+        y_max = 1 + math.ceil((self.x_max - self.x_min) / self.voxel_size)
 
         # Height Map
-        height_map = np.zeros((bev_height, bev_width))
+        height_map = np.zeros((y_max, x_max))
+        height_map[y_img, x_img] = pixel_values
 
-        _, indices = np.unique(point_cloud[:, 0:2], axis=0, return_index=True)
-        point_cloud_frac = point_cloud[indices]
+        # save bev image
+        image = Image.fromarray(height_map)
+        image = image.convert('L')
+        image.save('/home/chenwei/HDD/livox_dl/LIVOX/bev_image/' + data_num + ".bmp")
 
-        # some important problem is image coordinate is (y,x), not (x,y)
-        max_height = float(np.abs(data_params['z_max'] - data_params['z_min']))
-        height_map[np.int_(point_cloud_frac[:, 0]), np.int_(point_cloud_frac[:, 1])] = point_cloud_frac[:,
-                                                                                       2] / max_height
+        # Intensity Map
+        intensity_map = np.zeros((y_max, x_max))
+        intensity_map[y_img, x_img] = i_points
 
-        # Intensity Map & DensityMap
-        intensity_map = np.zeros((bev_height, bev_width))
-        density_map = np.zeros((bev_height, bev_width))
-
-        _, indices, counts = np.unique(point_cloud[:, 0:2],
-                                       axis=0,
-                                       return_index=True,
-                                       return_counts=True)
-
-        point_cloud_top = point_cloud[indices]
-        normalized_counts = np.minimum(1.0, np.log(counts + 1) / np.log(64))
-        intensity_map[np.int_(point_cloud_top[:, 0]), np.int_(point_cloud_top[:, 1])] = point_cloud_top[:, 3]
-        density_map[np.int_(point_cloud_top[:, 0]), np.int_(point_cloud_top[:, 1])] = normalized_counts
-
-        rgb_map = np.zeros((bev_height, bev_width, 3))
-        rgb_map[:, :, 0] = density_map  # r_map
-        rgb_map[:, :, 1] = height_map  # g_map
-        rgb_map[:, :, 2] = intensity_map  # b_map
+        rgb_map = np.zeros((y_max, x_max, 2))
+        rgb_map[:, :, 0] = height_map  # g_map
+        rgb_map[:, :, 1] = intensity_map  # b_map
 
         return rgb_map
 
     def load_label(self, label_path):
         lines = [line.rstrip() for line in open(label_path)]
-        num_obj = len(lines)
-
-        index = 0
-        label = np.zeros([num_obj, (6 + 1 + 1)], dtype=np.float32)
+        label_list = []
         for line in lines:
             data = line.split(' ')
             data[4:] = [float(t) for t in data[4:]]
-            label[index, 0] = self.cls_type_to_id(data)
-            label[index, 1], label[index, 2], label[index, 3] = self.calc_xyz(data)
-            label[index, 4], label[index, 5], label[index, 6] = self.calc_hwl(data)
-            label[index, 7] = self.calc_yaw(data)
-            index += 1
-
-        return label
+            type = data[1]
+            if type not in classes_map.keys():
+                continue
+            label = np.zeros([8], dtype=np.float32)
+            label[0] = self.cls_type_to_id(data)
+            label[1], label[2], label[3] = self.calc_xyz(data)
+            label[4], label[5], label[6] = self.calc_hwl(data)
+            label[7] = self.calc_yaw(data)
+            label_list.append(label)
+        return np.array(label_list)
 
     def cls_type_to_id(self, data):
         type = data[1]
@@ -184,40 +182,87 @@ class Dataset(object):
         else:
             return angle - 1.57
 
-    def preprocess_true_boxes(self, labels, input_height, input_width, anchors, num_classes):
+    def transform_bev_label(self, label, data_num):
+        image_width = (self.y_max - self.y_min) / self.voxel_size
+        image_height = (self.x_max - self.x_min) / self.voxel_size
+
+        boxes_list = []
+        boxes_num = label.shape[0]
+
+        txt_path = "/home/chenwei/HDD/livox_dl/LIVOX/bev_label/" + data_num + '.txt'
+        f = open(txt_path, mode='w')
+
+        for i in range(boxes_num):
+            center_x = (-label[i][2] / self.voxel_size).astype(np.int32) - int(np.floor(self.y_min / self.voxel_size))
+            center_y = (-label[i][1] / self.voxel_size).astype(np.int32) + int(np.ceil(self.x_max / self.voxel_size))
+            width = label[i][5] / self.voxel_size
+            height = label[i][6] / self.voxel_size
+
+            left = center_x - width / 2
+            right = center_x + width / 2
+            top = center_y - height / 2
+            bottom = center_y + height / 2
+            if((left > image_width) or right < 0 or (top > image_height) or bottom < 0):
+                continue
+            if(left < 0):
+                center_x = (0 + right) / 2
+                width = 0 + right
+            if(right > image_width):
+                center_x = (image_width + left) / 2
+                width = image_width - left
+            if(top < 0):
+                center_y = (0 + bottom) / 2
+                height = 0 + bottom
+            if(bottom > image_height):
+                center_y = (top + image_height) / 2
+                height = image_height - top
+
+            box = np.zeros([6], dtype=np.float32)
+            box[0] = center_x
+            box[1] = center_y
+            box[2] = width
+            box[3] = height
+            box[4] = label[i][0]
+            box[5] = label[i][7]
+            boxes_list.append(box)
+
+            for k in range(6):
+                f.write(str(box[k]) + " ")
+            f.write("\n")
+        f.close()
+
+        return np.array(boxes_list)
+
+    def preprocess_true_boxes(self, labels):
         """
         preprocess true boxes to train input format
         :param labels: numpy.ndarray of shape [num, 5]
                        shape[0]: the number of labels in each image.
                        shape[1]: x_min, y_min, x_max, y_max, class_index
-        :param input_height: the shape of input image height
-        :param input_width: the shape of input image width
-        :param anchors: array, shape=[9, 2]
-                        shape[0]: the number of anchors
-                        shape[1]: width, height
-        :param num_classes: the number of class
         :return: y_true shape is [feature_height, feature_width, per_anchor_num, 5 + num_classes]
         """
         # class id must be less than num_classes
-        assert (labels[..., 4] < num_classes).all()
+        #assert (labels[..., 4] < self.class_num).all()
 
-        input_shape = np.array([input_height, input_width], dtype=np.int32)
-        num_layers = len(anchors) // 3
-        anchor_mask = [[6, 7, 8], [3, 4, 5], [0, 1, 2]]
+        anchor_array = np.array(self.anchors)
+
+        input_shape = np.array([self.input_height, self.input_width], dtype=np.int32)
+        num_layers = len(self.anchors) // 2
+        anchor_mask = [[4, 5], [2, 3], [0, 1]]
         feature_map_sizes = [input_shape // 32, input_shape // 16, input_shape // 8]
 
-        y_true_13 = np.zeros(shape=[feature_map_sizes[0][0], feature_map_sizes[0][1], 3, 5 + num_classes], dtype=np.float32)
-        y_true_26 = np.zeros(shape=[feature_map_sizes[1][0], feature_map_sizes[1][1], 3, 5 + num_classes], dtype=np.float32)
-        y_true_52 = np.zeros(shape=[feature_map_sizes[2][0], feature_map_sizes[2][1], 3, 5 + num_classes], dtype=np.float32)
+        y_true_13 = np.zeros(shape=[feature_map_sizes[0][0], feature_map_sizes[0][1], 3, 5 + self.class_num], dtype=np.float32)
+        y_true_26 = np.zeros(shape=[feature_map_sizes[1][0], feature_map_sizes[1][1], 3, 5 + self.class_num], dtype=np.float32)
+        y_true_52 = np.zeros(shape=[feature_map_sizes[2][0], feature_map_sizes[2][1], 3, 5 + self.class_num], dtype=np.float32)
         y_true = [y_true_13, y_true_26, y_true_52]
 
-        # convert boxes from (min_x, min_y, max_x, max_y) to (x, y, w, h)
-        boxes_xy = (labels[:, 0:2] + labels[:, 2:4]) / 2    # 中心点坐标
-        boxes_wh = labels[:, 2:4] - labels[:, 0:2]          # 宽，高
-        true_boxes = np.concatenate([boxes_xy, boxes_wh], axis=-1)
+        boxes_xy = labels[:, 0:2]    # 中心点坐标
+        boxes_wh = labels[:, 2:4]    # 宽，高
+        boxes_yaw = labels[:, 5:6]
+        true_boxes = np.concatenate([boxes_xy, boxes_wh, boxes_yaw], axis=-1)
 
-        anchors_max = anchors / 2.
-        anchors_min = - anchors / 2.
+        anchors_max = anchor_array / 2.
+        anchors_min = - anchor_array / 2.
         valid_mask = boxes_wh[:, 0] > 0
         wh = boxes_wh[valid_mask]
 
@@ -226,15 +271,15 @@ class Dataset(object):
         boxes_max = wh / 2.
         boxes_min = - wh / 2.
 
-        # [N, 1, 2] & [9, 2] ==> [N, 9, 2]
+        # [N, 1, 2] & [6, 2] ==> [N, 6, 2]
         intersect_mins = np.maximum(boxes_min, anchors_min)
         intersect_maxs = np.minimum(boxes_max, anchors_max)
-        # [N, 9, 2]
+        # [N, 6, 2]
         intersect_wh = np.maximum(intersect_maxs - intersect_mins, 0.)
         intersect_area = intersect_wh[..., 0] * intersect_wh[..., 1]
         box_area = wh[..., 0] * wh[..., 1]
-        anchor_area = anchors[:, 0] * anchors[:, 1]
-        # [N, 9]
+        anchor_area = anchor_array[:, 0] * anchor_array[:, 1]
+        # [N, 6]
         iou = intersect_area / (box_area + anchor_area - intersect_area + tf.keras.backend.epsilon())
 
         # Find best anchor for each true box [N]
@@ -248,7 +293,30 @@ class Dataset(object):
                 k = anchor_mask[l].index(n)
                 c = labels[t][4].astype('int32')
                 y_true[l][j, i, k, 0:4] = true_boxes[t, 0:4]
-                y_true[l][j, i, k, 4] = 1
-                y_true[l][j, i, k, 5 + c] = 1
+                y_true[l][j, i, k, 4] = true_boxes[t, 4:5]
+                y_true[l][j, i, k, 5] = 1
+                y_true[l][j, i, k, 6 + c] = 1
 
         return y_true_13, y_true_26, y_true_52
+
+if __name__ == '__main__':
+    image_path = '/home/chenwei/HDD/livox_dl/LIVOX/bev_image/000107.bmp'
+    label_path = '/home/chenwei/HDD/livox_dl/LIVOX/bev_label/000107.txt'
+
+    lines = [line.rstrip() for line in open(label_path)]
+    label_list = []
+    for line in lines:
+        data = line.split(' ')
+        data[0:] = [float(t) for t in data[0:]]
+        x_min = int(data[0] - data[2] / 2)
+        y_min = int(data[1] - data[3] / 2)
+        x_max = int(data[0] + data[2] / 2)
+        y_max = int(data[1] + data[3] / 2)
+
+        label_list.append([x_min, y_min, x_max, y_max])
+
+    image = cv2.imread(image_path, 0)
+    for label in label_list:
+        cv2.rectangle(image, (label[0], label[1]), (label[3], label[3]), (255, 0, 0), 2)
+    cv2.imshow("image", image)
+    cv2.waitKey(0)

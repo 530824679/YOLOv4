@@ -19,10 +19,10 @@ class TFRecord(object):
         self.tfrecord_dir = path_params['tfrecord_dir']
         self.train_tfrecord_name = path_params['train_tfrecord_name']
         self.test_tfrecord_name = path_params['test_tfrecord_name']
-        self.image_width = model_params['image_width']
-        self.image_height = model_params['image_height']
+        self.input_width = model_params['input_width']
+        self.input_height = model_params['input_height']
         self.channels = model_params['channels']
-        self.class_num = model_params['num_classes']
+        self.class_num = len(model_params['classes'])
         self.batch_size = solver_params['batch_size']
         self.dataset = Dataset()
 
@@ -56,13 +56,21 @@ class TFRecord(object):
                 image = self.dataset.load_bev_image(index)
                 label = self.dataset.load_bev_label(index)
 
+                if len(label) == 0:
+                    continue
+
+                y_true_13, y_true_26, y_true_52 = self.dataset.preprocess_true_boxes(label)
                 image_string = image.tostring()
-                label_string = label.tostring()
+                y_true_13_string = y_true_13.tostring()
+                y_true_26_string = y_true_26.tostring()
+                y_true_52_string = y_true_52.tostring()
 
                 example = tf.train.Example(features=tf.train.Features(
                     feature={
                         'image': tf.train.Feature(bytes_list=tf.train.BytesList(value=[image_string])),
-                        'label': tf.train.Feature(bytes_list=tf.train.BytesList(value=[label_string]))
+                        'y_true_13': tf.train.Feature(bytes_list=tf.train.BytesList(value=[y_true_13_string])),
+                        'y_true_26': tf.train.Feature(bytes_list=tf.train.BytesList(value=[y_true_26_string])),
+                        'y_true_52': tf.train.Feature(bytes_list=tf.train.BytesList(value=[y_true_52_string]))
                     }))
                 if count < train_sample_num:
                     train_writer.write(example.SerializeToString())

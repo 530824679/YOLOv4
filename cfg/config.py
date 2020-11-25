@@ -30,14 +30,14 @@ data_params = {
 }
 
 model_params = {
-    'input_height': 416,                                # 图片高度
-    'input_width': 416,                                 # 图片宽度
+    'input_height': 608,                                # 图片高度
+    'input_width': 608,                                 # 图片宽度
     'channels': 3,                                      # 输入图片通道数
-    'anchors': [[10,13], [16,30], [33,23],
-               [30,61], [62,45], [59,119],
-               [116,90], [156,198], [373,326]],
-    'classes': ['person', 'hat'],  # 类别
-    'anchor_per_scale': 3,                              # 每个尺度的anchor个数
+    'anchors': [[5, 5], [7, 15],
+                [17, 41], [18, 44],
+                [19, 49], [28, 104]],
+    'classes': ['car', 'bus', 'truck', 'pedestrains'],  # 类别
+    'anchor_per_scale': 2,                              # 每个尺度的anchor个数
     'strides': [8, 16, 32],                             # 不同尺度的步长
     'upsample_method': "resize",                        # 上采样的方式
     'iou_threshold': 0.5,
@@ -65,4 +65,4 @@ test_params = {
     'max_output_size': 10           # nms选择的边界框最大数量
 }
 
-classes_map = {'person': 0, 'hat': 1}
+classes_map = {'bus': 0, 'car': 1, 'truck': 2, 'pedestrains': 3}
