@@ -80,21 +80,12 @@ class TFRecord(object):
         test_writer.close()
         print('Finish trainval.tfrecord Done')
 
-    def parse_single_example(self, file_name):
+    def parse_single_example(self, serialized_example):
         """
-        :param file_name:待解析的tfrecord文件的名称
+        :param serialized_example:待解析的tfrecord文件的名称
         :return: 从文件中解析出的单个样本的相关特征，image, label
         """
-        tfrecord_file = os.path.join(self.tfrecord_dir, self.train_tfrecord_name)
-
-        # 定义解析TFRecord文件操作
-        reader = tf.TFRecordReader()
-
-        # 创建样本文件名称队列
-        filename_queue = tf.train.string_input_producer([tfrecord_file])
-
         # 解析单个样本文件
-        _, serialized_example = reader.read(filename_queue)
         features = tf.parse_single_example(
             serialized_example,
             features={
@@ -102,39 +93,37 @@ class TFRecord(object):
                 'label': tf.FixedLenFeature([], tf.string)
             })
 
-
         image = features['image']
         label = features['label']
 
-        return image, label
-
-    def parse_batch_examples(self, file_name):
-        """
-        :param file_name:待解析的tfrecord文件的名称
-        :return: 解析得到的batch_size个样本
-        """
-        batch_size = self.batch_size
-        min_after_dequeue = 100
-        num_threads = 8
-        capacity = min_after_dequeue + 3 * batch_size
-
-
-        image, label = self.parse_single_example(file_name)
-        image_batch, label_batch = tf.train.shuffle_batch([image, label],
-                                                          batch_size=batch_size,
-                                                          num_threads=num_threads,
-                                                          capacity=capacity,
-                                                          min_after_dequeue=min_after_dequeue)
-
         # 进行解码
-        image_batch = tf.decode_raw(image_batch, tf.float32)
-        label_batch = tf.decode_raw(label_batch, tf.float32)
+        tf_image = tf.decode_raw(image, tf.float32)
+        tf_label = tf.decode_raw(label, tf.float32)
 
         # 转换为网络输入所要求的形状
-        image_batch = tf.reshape(image_batch, [self.batch_size, self.image_height, self.image_width, self.channels])
-        label_batch = tf.reshape(label_batch, [self.batch_size, self.grid_height, self.grid_width, 7 + self.class_num])
+        image_batch = tf.reshape(tf_image, [self.input_height, self.input_width, self.channels])
+        label_batch = tf.reshape(tf_label, [self.grid_height, self.grid_width, 7 + self.class_num])
 
-        return image_batch, label_batch
+        # preprocess
+
+
+        return image, label
+
+    def create_dataset(self, filenames, batch_size=8, is_shuffle=False, n_repeats=0):
+        """
+        :param filenames: record file names
+        :param batch_size: batch size
+        :param is_shuffle: whether shuffle
+        :param n_repeats: number of repeats
+        :return:
+        """
+        dataset = tf.data.TFRecordDataset(filenames)
+        dataset = dataset.repeat(n_repeats)
+        dataset = dataset.map(lambda x: self.parse_single_example(x), num_parallel_calls = 4)
+        if is_shuffle:
+            dataset = dataset.shuffle(100)
+        dataset = dataset.batch(batch_size)
+        return dataset
 
 if __name__ == '__main__':
     tfrecord = TFRecord()

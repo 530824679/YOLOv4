@@ -236,10 +236,10 @@ class Dataset(object):
     def preprocess_true_boxes(self, labels):
         """
         preprocess true boxes to train input format
-        :param labels: numpy.ndarray of shape [num, 5]
+        :param labels: numpy.ndarray of shape [num, 6]
                        shape[0]: the number of labels in each image.
-                       shape[1]: x_min, y_min, x_max, y_max, class_index
-        :return: y_true shape is [feature_height, feature_width, per_anchor_num, 5 + num_classes]
+                       shape[1]: x_min, y_min, x_max, y_max, class_index, yaw
+        :return: y_true shape is [feature_height, feature_width, per_anchor_num, 7 + num_classes]
         """
         # class id must be less than num_classes
         #assert (labels[..., 4] < self.class_num).all()
@@ -251,15 +251,17 @@ class Dataset(object):
         anchor_mask = [[4, 5], [2, 3], [0, 1]]
         feature_map_sizes = [input_shape // 32, input_shape // 16, input_shape // 8]
 
-        y_true_13 = np.zeros(shape=[feature_map_sizes[0][0], feature_map_sizes[0][1], 3, 5 + self.class_num], dtype=np.float32)
-        y_true_26 = np.zeros(shape=[feature_map_sizes[1][0], feature_map_sizes[1][1], 3, 5 + self.class_num], dtype=np.float32)
-        y_true_52 = np.zeros(shape=[feature_map_sizes[2][0], feature_map_sizes[2][1], 3, 5 + self.class_num], dtype=np.float32)
+        y_true_13 = np.zeros(shape=[feature_map_sizes[0][0], feature_map_sizes[0][1], 3, 7 + self.class_num], dtype=np.float32)
+        y_true_26 = np.zeros(shape=[feature_map_sizes[1][0], feature_map_sizes[1][1], 3, 7 + self.class_num], dtype=np.float32)
+        y_true_52 = np.zeros(shape=[feature_map_sizes[2][0], feature_map_sizes[2][1], 3, 7 + self.class_num], dtype=np.float32)
         y_true = [y_true_13, y_true_26, y_true_52]
 
         boxes_xy = labels[:, 0:2]    # 中心点坐标
         boxes_wh = labels[:, 2:4]    # 宽，高
-        boxes_yaw = labels[:, 5:6]
-        true_boxes = np.concatenate([boxes_xy, boxes_wh, boxes_yaw], axis=-1)
+        boxes_yaw = labels[:, 5:6]   # yaw
+        boxes_re = np.cos(boxes_yaw)
+        boxes_im = np.sin(boxes_yaw)
+        true_boxes = np.concatenate([boxes_xy, boxes_wh, boxes_re, boxes_im], axis=-1)
 
         anchors_max = anchor_array / 2.
         anchors_min = - anchor_array / 2.
@@ -293,9 +295,9 @@ class Dataset(object):
                 k = anchor_mask[l].index(n)
                 c = labels[t][4].astype('int32')
                 y_true[l][j, i, k, 0:4] = true_boxes[t, 0:4]
-                y_true[l][j, i, k, 4] = true_boxes[t, 4:5]
-                y_true[l][j, i, k, 5] = 1
-                y_true[l][j, i, k, 6 + c] = 1
+                y_true[l][j, i, k, 4:6] = true_boxes[t, 4:6]
+                y_true[l][j, i, k, 6] = 1
+                y_true[l][j, i, k, 7 + c] = 1
 
         return y_true_13, y_true_26, y_true_52
 

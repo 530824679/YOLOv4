@@ -13,28 +13,33 @@ from cfg.config import model_params
 from model.ops import *
 
 class Network(object):
-    def __init__(self, inputs, is_train):
+    def __init__(self, is_train):
         self.is_train = is_train
         self.strides = model_params['strides']
-        self.classes = model_params['classes']
-        self.class_num = len(self.classes)
+        self.class_num = len(model_params['classes'])
         self.anchors = model_params['anchors']
         self.anchor_per_sacle = model_params['anchor_per_sacle']
         self.iou_loss_thresh = model_params['iou_threshold']
         self.upsample_method = model_params['upsample_method']
+
+    def forward(self, inputs):
         try:
             self.conv_lbbox, self.conv_mbbox, self.conv_sbbox = self.build_network(inputs)
         except:
-            raise NotImplementedError("Can not build up yolov3 network!")
+            raise NotImplementedError("Can not build up yolov4 network!")
 
         with tf.variable_scope('pred_sbbox'):
-            self.pred_sbbox = self.decode(self.conv_sbbox, self.anchors[0], self.strides[0])
+            self.pred_sbbox = self.reorg_layer(self.conv_sbbox, self.anchors[0], self.strides[0])
 
         with tf.variable_scope('pred_mbbox'):
-            self.pred_mbbox = self.decode(self.conv_mbbox, self.anchors[1], self.strides[1])
+            self.pred_mbbox = self.reorg_layer(self.conv_mbbox, self.anchors[1], self.strides[1])
 
         with tf.variable_scope('pred_lbbox'):
-            self.pred_lbbox = self.decode(self.conv_lbbox, self.anchors[2], self.strides[2])
+            self.pred_lbbox = self.reorg_layer(self.conv_lbbox, self.anchors[2], self.strides[2])
+
+        logits = [self.conv_lbbox, self.conv_mbbox, self.conv_sbbox]
+        preds = [self.pred_sbbox, self.pred_mbbox, self.pred_lbbox]
+        return logits, preds
 
     def CSPDarknet53(self, inputs, scope='CSPDarknet53'):
         """
@@ -44,7 +49,7 @@ class Network(object):
         :return: 三个不同尺度的基础特征图输出
         """
         with tf.variable_scope(scope):
-            input_data = conv2d(inputs, filters_shape=(3, 3, 3, 32), trainable=self.is_train, scope='conv0')
+            input_data = conv2d(inputs, filters_shape=(3, 3, 2, 32), trainable=self.is_train, scope='conv0')
             input_data = csp_block(input_data, 64, 64, 64, 64, 64, 1, trainable=self.is_train, scope='csp_1')
             input_data = csp_block(input_data, 128, 64, 64, 64, 128, 2, trainable=self.is_train, scope='csp_2')
             input_data = csp_block(input_data, 256, 128, 128, 128, 256, 8, trainable=self.is_train, scope='csp_3')
@@ -67,25 +72,25 @@ class Network(object):
         route_2 = upsample_block(route_2, route_3, 256, 512, trainable=self.is_train, scope='upsample_block_1')
         route_1 = upsample_block(route_1, route_2, 128, 256, trainable=self.is_train, scope='upsample_block_2')
         conv_lobj_branch = conv2d(route_1, (3, 3, 256, 256), activate='leaky', trainable=self.is_train, scope='conv_lobj_branch')
-        conv_lbbox = conv2d(conv_lobj_branch, (1, 1, 256, 3 * (self.class_num + 5)), activate=None, bn=False, trainable=self.is_train, scope='conv_lbbox')
+        conv_lbbox = conv2d(conv_lobj_branch, (1, 1, 256, 2 * (self.class_num + 7)), activate=None, bn=False, trainable=self.is_train, scope='conv_lbbox')
 
         route_2 = downsample_block(route_1, route_2, 256, 512, trainable=self.is_train)
         conv_mobj_branch = conv2d(route_2, (3, 3, 512, 512), activate='leaky', trainable=self.is_train, scope='conv_mobj_branch')
-        conv_mbbox = conv2d(conv_mobj_branch, (1, 1, 512, 3 * (self.class_num + 5)), activate=None, bn=False, trainable=self.is_train, scope='conv_mbbox')
+        conv_mbbox = conv2d(conv_mobj_branch, (1, 1, 512, 2 * (self.class_num + 7)), activate=None, bn=False, trainable=self.is_train, scope='conv_mbbox')
 
         route_3 = downsample_block(route_2, route_3, 512, 1024, trainable=self.is_train)
         conv_sobj_branch = conv2d(route_3, (3, 3, 1024, 1024), activate='leaky',  trainable=self.is_train, scope='conv_sobj_branch')
-        conv_sbbox = conv2d(conv_sobj_branch, (1, 1, 1024, 3 * (self.class_num + 5)), activate=None, bn=False, trainable=self.is_train, scope='conv_sbbox')
+        conv_sbbox = conv2d(conv_sobj_branch, (1, 1, 1024, 2 * (self.class_num + 7)), activate=None, bn=False, trainable=self.is_train, scope='conv_sbbox')
 
         return conv_lbbox, conv_mbbox, conv_sbbox
 
-    def decode(self, feature_maps, anchors, stride):
+    def reorg_layer(self, feature_maps, anchors, stride):
         """
         解码网络输出的特征图
         :param feature_maps:网络输出的特征图
         :param anchors:当前层使用的anchor尺度
         :param stride:特征图相比原图的缩放比例
-        :return: 预测层最终的输出 shape=[batch_size, feature_size, feature_size, anchor_per_scale, 5 + num_classes]
+        :return: 预测层最终的输出 shape=[batch_size, feature_size, feature_size, anchor_per_scale, 7 + num_classes]
         """
 
         feature_shape = tf.shape(feature_maps)[1:3]
@@ -95,15 +100,18 @@ class Network(object):
         anchors = tf.constant(anchors, dtype=tf.float32)
 
         # 网络输出转化——偏移量、置信度、类别概率
-        predict = tf.reshape(feature_maps, [batch_size, feature_shape[0], feature_shape[1], anchor_per_scale, self.class_num + 5])
+        predict = tf.reshape(feature_maps, [batch_size, feature_shape[0], feature_shape[1], anchor_per_scale, self.class_num + 7])
         # 中心坐标相对于该cell左上角的偏移量，sigmoid函数归一化到0-1
         xy_offset = tf.nn.sigmoid(predict[:, :, :, :, 0:2])
         # 相对于anchor的wh比例，通过e指数解码, 避免出现NAN值
         wh_offset = tf.clip_by_value(tf.exp(predict[:, :, :, :, 2:4]), 1e-9, 50)
+        # 复数角度re im
+        pred_re = 2 * tf.sigmoid(predict[:, :, :, :, 4:5]) - 1
+        pred_im = 2 * tf.sigmoid(predict[:, :, :, :, 5:6]) - 1
         # 置信度，sigmoid函数归一化到0-1
-        pred_obj = tf.nn.sigmoid(predict[:, :, :, :, 4:5])
+        pred_obj = tf.nn.sigmoid(predict[:, :, :, :, 6:7])
         # 网络回归的是得分,用softmax转变成类别概率
-        pred_class = tf.nn.softmax(predict[:, :, :, :, 5:])
+        pred_class = tf.nn.softmax(predict[:, :, :, :, 7:])
 
         # 构建特征图每个cell的左上角的xy坐标
         height_index = tf.range(feature_shape[0], dtype=tf.int32)
@@ -118,5 +126,5 @@ class Network(object):
         bboxes_xy = (xy_cell + xy_offset) / tf.cast(feature_shape[::-1], tf.dtype(feature_maps))
         bboxes_wh = (anchors * wh_offset) / tf.cast(feature_shape[::-1], tf.dtype(feature_maps))
         pred_xywh = tf.concat([bboxes_xy, bboxes_wh], axis=-1)
-
-        return tf.concat([pred_xywh, pred_obj, pred_class], axis=-1)
+        pred_remi = tf.concat([pred_re, pred_im], axis=-1)
+        return tf.concat([pred_xywh, pred_remi, pred_obj, pred_class], axis=-1)

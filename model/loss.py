@@ -13,12 +13,7 @@ import tensorflow as tf
 from cfg.config import model_params, solver_params
 
 class Loss(object):
-    def __init__(self, predicts, labels, scope='loss'):
-        """
-        :param predicts:网络的输出 anchor_num * (5 + class_num)
-        :param labels:标签信息
-        :param scope:命名loss
-        """
+    def __init__(self):
         self.batch_size = solver_params['batch_size']
         self.image_height = model_params['image_height']
         self.image_width = model_params['image_width']
@@ -27,10 +22,10 @@ class Loss(object):
         self.iou_threshold = model_params['iou_threshold']
         self.label_smoothing = model_params['label_smoothing']
 
-    def calc_loss(self, pred_conv, pred_bbox, label_bbox, scope):
+    def calc_loss(self, pred_conv, pred_bbox, label_bbox, scope='loss'):
         """
-        :param pred_conv: [pred_sconv, pred_mconv, pred_lconv]. pred_conv_shape=[batch_size, conv_height, conv_width, anchor_per_scale, 5 + num_classes]
-        :param pred_bbox: [pred_sbbox, pred_mbbox, pred_lbbox]. pred_bbox_shape=[batch_size, conv_height, conv_width, anchor_per_scale, 5 + num_classes]
+        :param pred_conv: [pred_sconv, pred_mconv, pred_lconv]. pred_conv_shape=[batch_size, conv_height, conv_width, anchor_per_scale, 7 + num_classes]
+        :param pred_bbox: [pred_sbbox, pred_mbbox, pred_lbbox]. pred_bbox_shape=[batch_size, conv_height, conv_width, anchor_per_scale, 7 + num_classes]
         :param label_bbox: [label_sbbox, label_mbbox, label_lbbox].
         :return:
         """
@@ -56,21 +51,27 @@ class Loss(object):
 
     def loss_layer(self, pred_feat, pred_bbox, y_true):
         feature_shape = tf.shape(pred_feat)[1:3]
-        predicts = tf.reshape(pred_feat, [-1, feature_shape[0], feature_shape[1], self.anchor_per_scale, (5 + self.class_num)])
-        conv_conf = predicts[:, :, :, :, 4:5]
-        conv_prob = predicts[:, :, :, :, 5:]
+        predicts = tf.reshape(pred_feat, [-1, feature_shape[0], feature_shape[1], self.anchor_per_scale, (7 + self.class_num)])
+        conv_conf = predicts[:, :, :, :, 6:7]
+        conv_prob = predicts[:, :, :, :, 7:]
 
         pred_xywh = pred_bbox[:, :, :, :, 0:4]
-        pred_conf = pred_bbox[:, :, :, :, 4:5]
+        pred_reim = pred_bbox[:, :, :, :, 4:6]
+        pred_conf = pred_bbox[:, :, :, :, 6:7]
 
         label_xywh = y_true[:, :, :, :, 0:4]
-        object_mask = y_true[:, :, :, :, 4:5]
-        label_prob = self.smooth_labels(y_true[:, :, :, :, 5:], self.label_smoothing)
+        label_reim = y_true[:, :, :, :, 4:6]
+        object_mask = y_true[:, :, :, :, 6:7]
+        label_prob = self.smooth_labels(y_true[:, :, :, :, 7:], self.label_smoothing)
 
         # coord loss label_wh normalzation 0-1
         bbox_loss_scale = 2.0 - 1.0 * label_xywh[:, :, :, :, 2:3] * label_xywh[:, :, :, :, 3:4] / feature_shape[0] / feature_shape[1]
         ciou = tf.expand_dims(self.box_ciou(pred_xywh, label_xywh), axis=-1)
         ciou_loss = object_mask * bbox_loss_scale * (1 - ciou)
+
+        # angle loss
+        loss_re = tf.reduce_sum(tf.square(label_reim - pred_reim))
+        loss_im = tf.reduce_sum(tf.square(label_reim - pred_reim))
 
         # confidence loss
         valid_boxes = tf.boolean_mask(label_xywh, tf.cast(object_mask, 'bool'))

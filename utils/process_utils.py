@@ -105,7 +105,6 @@ def non_maximum_suppression(bboxes, scores, classes, iou_threshold=0.5):
 
     return best_results
 
-
 def soft_non_maximum_suppression(classes, scores, bboxes, sigma=0.3):
     """
     calculate the soft non-maximum suppression to eliminate the overlapped box

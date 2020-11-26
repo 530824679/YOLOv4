@@ -15,7 +15,7 @@ path_params = {
     'tfrecord_dir': '/home/chenwei/HDD/livox_dl/LIVOX/tfrecord',
     'checkpoints_name': 'model.ckpt',
     'train_tfrecord_name': 'train.tfrecord',
-    'test_tfrecord_name': 'test.tfrecord',
+    'val_tfrecord_name': 'val.tfrecord',
     'test_output_dir': './test'
 }
 
@@ -32,7 +32,7 @@ data_params = {
 model_params = {
     'input_height': 608,                                # 图片高度
     'input_width': 608,                                 # 图片宽度
-    'channels': 3,                                      # 输入图片通道数
+    'channels': 2,                                      # 输入图片通道数
     'anchors': [[5, 5], [7, 15],
                 [17, 41], [18, 44],
                 [19, 49], [28, 104]],
@@ -46,7 +46,7 @@ model_params = {
 
 solver_params = {
     'gpu': '0',                     # 使用的gpu索引
-    'learning_rate': 0.0001,        # 初始学习率
+    'learning_rate': 0.001,        # 初始学习率
     'decay_steps': 30000,           #衰变步数
     'decay_rate': 0.1,              #衰变率
     'staircase': True,
@@ -56,7 +56,6 @@ solver_params = {
     'log_step': 1000,               # 日志保存间隔
     'display_step': 100,            # 显示打印间隔
     'weight_decay': 0.0001,         # 正则化系数
-    'restore': False                # 支持restore
 }
 
 test_params = {
