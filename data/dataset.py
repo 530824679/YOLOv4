@@ -305,20 +305,24 @@ if __name__ == '__main__':
     image_path = '/home/chenwei/HDD/livox_dl/LIVOX/bev_image/000501.bmp'
     label_path = '/home/chenwei/HDD/livox_dl/LIVOX/bev_label/000501.txt'
 
+    from utils.visualization import *
+
     lines = [line.rstrip() for line in open(label_path)]
     label_list = []
     for line in lines:
         data = line.split(' ')
         data[0:] = [float(t) for t in data[0:]]
-        x_min = int(data[0] - data[2] / 2)
-        y_min = int(data[1] - data[3] / 2)
-        x_max = int(data[0] + data[2] / 2)
-        y_max = int(data[1] + data[3] / 2)
+        x = int(data[0])
+        y = int(data[1])
+        w = int(data[2])
+        h = int(data[3])
+        angle = data[5]
 
-        label_list.append([x_min, y_min, x_max, y_max])
+        label_list.append([x, y, w, h, angle])
 
     image = cv2.imread(image_path, 0)
     for label in label_list:
-        cv2.rectangle(image, (label[0], label[1]), (label[2], label[3]), (255, 0, 0), 2)
+        draw_rotated_box(image, label[0], label[1], label[2], label[3], label[4], (255, 0, 0))
     cv2.imshow("image", image)
     cv2.waitKey(0)
+
