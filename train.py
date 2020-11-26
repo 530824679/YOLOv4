@@ -39,7 +39,6 @@ def train():
     config = tf.ConfigProto(gpu_options=gpu_options)
 
     # 定义输入的占位符
-    is_train = tf.placeholder(dtype=tf.bool, name="phase_train")
     handle_flag = tf.placeholder(tf.string, [], name='iterator_handle_flag')
 
     # 解析得到训练样本以及标注
@@ -58,12 +57,12 @@ def train():
     val_handle = val_iterator.string_handle()
 
     dataset_iterator = tf.data.Iterator.from_string_handle(handle_flag, train_dataset.output_types, train_dataset.output_shapes)
-    train_images, train_labels = dataset_iterator.get_next()
+    train_images, *train_labels = dataset_iterator.get_next()
 
     # tf.data pipeline will lose the data shape, so we need to set it manually
-    train_images.set_shape([None, input_height, input_width, 2])
-    for train_label in train_labels:
-        train_label.set_shape([None, None, None, None, None])
+    # train_images.set_shape([None, input_height, input_width, 2])
+    # for train_label in train_labels:
+    #     train_label.set_shape([None, None, None, None, None])
 
     # 构建网络
     network = Network(is_train=True)
@@ -122,7 +121,7 @@ def train():
         print('\n----------- start to train -----------\n')
         for epoch in range(total_epoches):
             try:
-                _, summary, loss_, global_step_, lr = sess.run([train_op, summary_op, loss_op, global_step, learning_rate], feed_dict={is_train: True, handle_flag: train_handle_value})
+                _, summary, loss_, global_step_, lr = sess.run([train_op, summary_op, loss_op, global_step, learning_rate], feed_dict={handle_flag: train_handle_value})
                 summary_writer.add_summary(summary, global_step=global_step_)
 
                 if epoch % solver_params['save_step'] == 0:

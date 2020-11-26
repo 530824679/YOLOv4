@@ -106,9 +106,9 @@ class TFRecord(object):
 
         # preprocess
         tf_image = tf_image / 255
-        y_true_13, y_true_26, y_true_52 = tf.py_func(self.dataset.preprocess_true_boxes, inp=[tf_label], Tout = [tf.float32, tf.float32, tf.float32])
+        y_true_19, y_true_38, y_true_76 = tf.py_func(self.dataset.preprocess_true_boxes, inp=[tf_label], Tout = [tf.float32, tf.float32, tf.float32])
 
-        return tf_image, [y_true_13, y_true_26, y_true_52]
+        return tf_image, y_true_19, y_true_38, y_true_76
 
     def create_dataset(self, filenames, batch_size=8, is_shuffle=False, n_repeats=0):
         """

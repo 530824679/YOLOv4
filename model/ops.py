@@ -42,6 +42,7 @@ def conv2d(inputs, filters_shape, trainable, downsample=False, activate='mish', 
         else:
             strides = (1, 1, 1, 1)
             padding = "SAME"
+            input_data = inputs
 
         weight = tf.get_variable(name='weight', dtype=tf.float32, trainable=True, shape=filters_shape, initializer=tf.random_normal_initializer(stddev=0.01))
         conv = tf.nn.conv2d(input=input_data, filter=weight, strides=strides, padding=padding)
@@ -83,9 +84,9 @@ def residual_block(inputs, output_channels, iter_num, trainable, scope):
         inputs = conv2d(inputs, filters_shape=(1, 1, input_channels, output_channels), trainable=trainable, scope='conv')
         short_cut = inputs
         for i in range(iter_num):
-            inputs_data = conv2d(inputs, filters_shape=(1, 1, output_channels, output_channels), trainable=trainable, scope='conv_'+str(iter_num))
-            inputs_data = conv2d(inputs_data, filters_shape=(3, 3, output_channels, output_channels), trainable=trainable, scope='conv_'+str(iter_num))
-            outputs = tf.add([inputs_data, short_cut])
+            inputs_data = conv2d(inputs, filters_shape=(1, 1, output_channels, output_channels), trainable=trainable, scope='conv_1_'+str(i))
+            inputs_data = conv2d(inputs_data, filters_shape=(3, 3, output_channels, output_channels), trainable=trainable, scope='conv_2_'+str(i))
+            outputs = tf.add(inputs_data, short_cut)
 
     return outputs
 
@@ -96,7 +97,7 @@ def spp_block(inputs, filter_num1=512, filter_num2=1024, trainable=True, scope='
         inputs_data = conv2d(inputs_data, filters_shape=(3, 3, filter_num1, filter_num2), trainable=trainable, activate='leaky', scope='conv_2')
         inputs_data = conv2d(inputs_data, filters_shape=(1, 1, filter_num2, filter_num1), trainable=trainable, activate='leaky', scope='conv_3')
         spp = spatial_pyramid_pooling(inputs_data, 5, 9, 13, scope='spp')
-        inputs_data = conv2d(spp, filters_shape=(1, 1, filter_num1, filter_num1), trainable=trainable, activate='leaky',scope='conv_4')
+        inputs_data = conv2d(spp, filters_shape=(1, 1, filter_num1 * 4, filter_num1), trainable=trainable, activate='leaky',scope='conv_4')
         inputs_data = conv2d(inputs_data, filters_shape=(3, 3, filter_num1, filter_num2), trainable=trainable, activate='leaky',scope='conv_5')
         outputs = conv2d(inputs_data, filters_shape=(1, 1, filter_num2, filter_num1), trainable=trainable, activate='leaky',scope='conv_6')
 

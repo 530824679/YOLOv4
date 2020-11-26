@@ -15,8 +15,6 @@ from cfg.config import model_params, solver_params
 class Loss(object):
     def __init__(self):
         self.batch_size = solver_params['batch_size']
-        self.image_height = model_params['image_height']
-        self.image_width = model_params['image_width']
         self.anchor_per_scale = model_params['anchor_per_scale']
         self.class_num = len(model_params['classes'])
         self.iou_threshold = model_params['iou_threshold']
@@ -112,7 +110,7 @@ class Loss(object):
 
 
         # coord loss label_wh normalzation 0-1
-        bbox_loss_scale = 2.0 - 1.0 * label_xywh[:, :, :, :, 2:3] * label_xywh[:, :, :, :, 3:4] / feature_shape[0] / feature_shape[1]
+        bbox_loss_scale = 2.0 - 1.0 * label_xywh[:, :, :, :, 2:3] * label_xywh[:, :, :, :, 3:4] / tf.cast(feature_shape[0], dtype=tf.float32) / tf.cast(feature_shape[1], dtype=tf.float32)
         ciou = tf.expand_dims(self.box_ciou(pred_xywh, label_xywh), axis=-1)
         ciou_loss = object_mask * bbox_loss_scale * (1 - ciou)
 
@@ -351,7 +349,7 @@ class Loss(object):
 
     def smooth_labels(self, y_true, label_smoothing=0.01):
         # smooth labels
-        label_smoothing = tf.constant(label_smoothing, dtype=tf.float16)
+        label_smoothing = tf.constant(label_smoothing, dtype=tf.float32)
         uniform_distribution = np.full(self.class_num, 1.0 / self.class_num)
         smooth_onehot = y_true * (1 - label_smoothing) + label_smoothing * uniform_distribution
         return smooth_onehot

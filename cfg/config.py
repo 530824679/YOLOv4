@@ -42,6 +42,7 @@ model_params = {
     'upsample_method': "resize",                        # 上采样的方式
     'iou_threshold': 0.5,
     'max_bbox_per_scale': 50,
+    'label_smoothing': 0.01
 }
 
 solver_params = {

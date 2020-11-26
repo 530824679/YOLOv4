@@ -18,7 +18,6 @@ class Network(object):
         self.strides = model_params['strides']
         self.class_num = len(model_params['classes'])
         self.anchors = model_params['anchors']
-        self.anchor_per_sacle = model_params['anchor_per_sacle']
         self.iou_loss_thresh = model_params['iou_threshold']
         self.upsample_method = model_params['upsample_method']
 
@@ -71,15 +70,15 @@ class Network(object):
         route_3 = spp_block(route_3, trainable=self.is_train, scope='spp_block')
         route_2 = upsample_block(route_2, route_3, 256, 512, trainable=self.is_train, scope='upsample_block_1')
         route_1 = upsample_block(route_1, route_2, 128, 256, trainable=self.is_train, scope='upsample_block_2')
-        conv_lobj_branch = conv2d(route_1, (3, 3, 256, 256), activate='leaky', trainable=self.is_train, scope='conv_lobj_branch')
+        conv_lobj_branch = conv2d(route_1, (3, 3, 128, 256), activate='leaky', trainable=self.is_train, scope='conv_lobj_branch')
         conv_lbbox = conv2d(conv_lobj_branch, (1, 1, 256, 2 * (self.class_num + 7)), activate=None, bn=False, trainable=self.is_train, scope='conv_lbbox')
 
-        route_2 = downsample_block(route_1, route_2, 256, 512, trainable=self.is_train)
-        conv_mobj_branch = conv2d(route_2, (3, 3, 512, 512), activate='leaky', trainable=self.is_train, scope='conv_mobj_branch')
+        route_2 = downsample_block(route_1, route_2, 256, 512, trainable=self.is_train, scope='downsample_block_1')
+        conv_mobj_branch = conv2d(route_2, (3, 3, 256, 512), activate='leaky', trainable=self.is_train, scope='conv_mobj_branch')
         conv_mbbox = conv2d(conv_mobj_branch, (1, 1, 512, 2 * (self.class_num + 7)), activate=None, bn=False, trainable=self.is_train, scope='conv_mbbox')
 
-        route_3 = downsample_block(route_2, route_3, 512, 1024, trainable=self.is_train)
-        conv_sobj_branch = conv2d(route_3, (3, 3, 1024, 1024), activate='leaky',  trainable=self.is_train, scope='conv_sobj_branch')
+        route_3 = downsample_block(route_2, route_3, 512, 1024, trainable=self.is_train, scope='downsample_block_2')
+        conv_sobj_branch = conv2d(route_3, (3, 3, 512, 1024), activate='leaky',  trainable=self.is_train, scope='conv_sobj_branch')
         conv_sbbox = conv2d(conv_sobj_branch, (1, 1, 1024, 2 * (self.class_num + 7)), activate=None, bn=False, trainable=self.is_train, scope='conv_sbbox')
 
         return conv_lbbox, conv_mbbox, conv_sbbox
@@ -123,8 +122,8 @@ class Network(object):
         xy_cell = tf.cast(tf.reshape(xy_cell, [feature_shape[0], feature_shape[1], 1, 2]), tf.float32)
 
         # decode to raw image norm 0-1
-        bboxes_xy = (xy_cell + xy_offset) / tf.cast(feature_shape[::-1], tf.dtype(feature_maps))
-        bboxes_wh = (anchors * wh_offset) / tf.cast(feature_shape[::-1], tf.dtype(feature_maps))
+        bboxes_xy = (xy_cell + xy_offset) / tf.cast(feature_shape[::-1], tf.float32)
+        bboxes_wh = (anchors * wh_offset) / tf.cast(feature_shape[::-1], tf.float32)
         pred_xywh = tf.concat([bboxes_xy, bboxes_wh], axis=-1)
         pred_remi = tf.concat([pred_re, pred_im], axis=-1)
         return tf.concat([pred_xywh, pred_remi, pred_obj, pred_class], axis=-1)
