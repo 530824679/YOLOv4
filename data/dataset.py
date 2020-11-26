@@ -300,8 +300,8 @@ class Dataset(object):
         return y_true_13, y_true_26, y_true_52
 
 if __name__ == '__main__':
-    image_path = '/home/chenwei/HDD/livox_dl/LIVOX/bev_image/000107.bmp'
-    label_path = '/home/chenwei/HDD/livox_dl/LIVOX/bev_label/000107.txt'
+    image_path = '/home/chenwei/HDD/livox_dl/LIVOX/bev_image/000501.bmp'
+    label_path = '/home/chenwei/HDD/livox_dl/LIVOX/bev_label/000501.txt'
 
     lines = [line.rstrip() for line in open(label_path)]
     label_list = []
@@ -317,6 +317,6 @@ if __name__ == '__main__':
 
     image = cv2.imread(image_path, 0)
     for label in label_list:
-        cv2.rectangle(image, (label[0], label[1]), (label[3], label[3]), (255, 0, 0), 2)
+        cv2.rectangle(image, (label[0], label[1]), (label[2], label[3]), (255, 0, 0), 2)
     cv2.imshow("image", image)
     cv2.waitKey(0)
