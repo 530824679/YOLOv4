@@ -101,13 +101,14 @@ class TFRecord(object):
         tf_label = tf.decode_raw(label, tf.float32)
 
         # 转换为网络输入所要求的形状
-        image_batch = tf.reshape(tf_image, [self.input_height, self.input_width, self.channels])
-        label_batch = tf.reshape(tf_label, [self.grid_height, self.grid_width, 7 + self.class_num])
+        tf_image = tf.reshape(tf_image, [self.input_height, self.input_width, self.channels])
+        tf_label = tf.reshape(tf_label, [-1, 7])
 
         # preprocess
+        tf_image = tf_image / 255
+        y_true_13, y_true_26, y_true_52 = tf.py_func(self.dataset.preprocess_true_boxes, inp=[tf_label], Tout = [tf.float32, tf.float32, tf.float32])
 
-
-        return image, label
+        return tf_image, [y_true_13, y_true_26, y_true_52]
 
     def create_dataset(self, filenames, batch_size=8, is_shuffle=False, n_repeats=0):
         """

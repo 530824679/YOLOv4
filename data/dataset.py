@@ -251,9 +251,9 @@ class Dataset(object):
         anchor_mask = [[4, 5], [2, 3], [0, 1]]
         feature_map_sizes = [input_shape // 32, input_shape // 16, input_shape // 8]
 
-        y_true_13 = np.zeros(shape=[feature_map_sizes[0][0], feature_map_sizes[0][1], 3, 7 + self.class_num], dtype=np.float32)
-        y_true_26 = np.zeros(shape=[feature_map_sizes[1][0], feature_map_sizes[1][1], 3, 7 + self.class_num], dtype=np.float32)
-        y_true_52 = np.zeros(shape=[feature_map_sizes[2][0], feature_map_sizes[2][1], 3, 7 + self.class_num], dtype=np.float32)
+        y_true_13 = np.zeros(shape=[feature_map_sizes[0][0], feature_map_sizes[0][1], 2, 7 + self.class_num], dtype=np.float32)
+        y_true_26 = np.zeros(shape=[feature_map_sizes[1][0], feature_map_sizes[1][1], 2, 7 + self.class_num], dtype=np.float32)
+        y_true_52 = np.zeros(shape=[feature_map_sizes[2][0], feature_map_sizes[2][1], 2, 7 + self.class_num], dtype=np.float32)
         y_true = [y_true_13, y_true_26, y_true_52]
 
         boxes_xy = labels[:, 0:2]    # 中心点坐标
@@ -305,7 +305,7 @@ if __name__ == '__main__':
     image_path = '/home/chenwei/HDD/livox_dl/LIVOX/bev_image/000501.bmp'
     label_path = '/home/chenwei/HDD/livox_dl/LIVOX/bev_label/000501.txt'
 
-    from utils.visualization import *
+    from utils.visualize import *
 
     lines = [line.rstrip() for line in open(label_path)]
     label_list = []

@@ -41,13 +41,28 @@ class Loss(object):
         with tf.name_scope('ciou_loss'):
             ciou_loss = loss_sbbox[0] + loss_mbbox[0] + loss_lbbox[0]
 
+        with tf.name_scope('reim_loss'):
+            reim_loss = loss_sbbox[1] + loss_mbbox[1] + loss_lbbox[1]
+
         with tf.name_scope('conf_loss'):
-            conf_loss = loss_sbbox[1] + loss_mbbox[1] + loss_lbbox[1]
+            conf_loss = loss_sbbox[2] + loss_mbbox[2] + loss_lbbox[2]
 
         with tf.name_scope('prob_loss'):
-            prob_loss = loss_sbbox[2] + loss_mbbox[2] + loss_lbbox[2]
+            prob_loss = loss_sbbox[3] + loss_mbbox[3] + loss_lbbox[3]
 
-        return ciou_loss, conf_loss, prob_loss
+        with tf.name_scope('rec_50'):
+            rec_50 = loss_sbbox[4] + loss_mbbox[4] + loss_lbbox[4]
+
+        with tf.name_scope('rec_75'):
+            rec_75 = loss_sbbox[5] + loss_mbbox[5] + loss_lbbox[5]
+
+        with tf.name_scope('avg_iou'):
+            avg_iou = loss_sbbox[6] + loss_mbbox[6] + loss_lbbox[6]
+
+        total_loss = 0.0
+        total_loss = ciou_loss + reim_loss + conf_loss + prob_loss
+
+        return total_loss, ciou_loss, reim_loss, conf_loss, prob_loss, rec_50, rec_75, avg_iou
 
     def loss_layer(self, pred_feat, pred_bbox, y_true):
         feature_shape = tf.shape(pred_feat)[1:3]
@@ -58,11 +73,43 @@ class Loss(object):
         pred_xywh = pred_bbox[:, :, :, :, 0:4]
         pred_reim = pred_bbox[:, :, :, :, 4:6]
         pred_conf = pred_bbox[:, :, :, :, 6:7]
+        pred_class = tf.argmax(pred_bbox[:, :, :, :, 7:], axis=-1)
 
         label_xywh = y_true[:, :, :, :, 0:4]
         label_reim = y_true[:, :, :, :, 4:6]
         object_mask = y_true[:, :, :, :, 6:7]
         label_prob = self.smooth_labels(y_true[:, :, :, :, 7:], self.label_smoothing)
+        label_class = tf.argmax(y_true[:, :, :, :, 7:], axis=-1)
+
+        """
+        compare online statistics
+        """
+        true_mins = label_xywh[..., 0:2] - label_xywh[..., 2:4] / 2.
+        true_maxs = label_xywh[..., 0:2] + label_xywh[..., 2:4] / 2.
+        pred_mins = pred_xywh[..., 0:2] - pred_xywh[..., 2:4] / 2.
+        pred_maxs = pred_xywh[..., 0:2] + pred_xywh[..., 2:4] / 2.
+
+        intersect_mins = tf.maximum(pred_mins, true_mins)
+        intersect_maxs = tf.minimum(pred_maxs, true_maxs)
+
+        intersect_wh = tf.maximum(intersect_maxs - intersect_mins, 0.)
+        intersect_area = intersect_wh[..., 0] * intersect_wh[..., 1]
+
+        true_area = label_xywh[..., 2] * label_xywh[..., 3]
+        pred_area = pred_xywh[..., 2] * pred_xywh[..., 3]
+
+        union_area = pred_area + true_area - intersect_area
+        iou_scores = tf.truediv(intersect_area, union_area)
+
+        iou_scores = object_mask * tf.expand_dims(iou_scores, 4)
+
+        count = tf.reduce_sum(object_mask)
+        detect_mask = tf.to_float((pred_conf * object_mask) >= 0.5)
+        class_mask = tf.expand_dims(tf.to_float(tf.equal(pred_class, label_class)), 4)
+        recall50 = tf.reduce_mean(tf.to_float(iou_scores >= 0.5) * detect_mask * class_mask) / (count + 1e-3)
+        recall75 = tf.reduce_mean(tf.to_float(iou_scores >= 0.75) * detect_mask * class_mask) / (count + 1e-3)
+        avg_iou = tf.reduce_mean(iou_scores) / (count + 1e-3)
+
 
         # coord loss label_wh normalzation 0-1
         bbox_loss_scale = 2.0 - 1.0 * label_xywh[:, :, :, :, 2:3] * label_xywh[:, :, :, :, 3:4] / feature_shape[0] / feature_shape[1]
@@ -70,8 +117,7 @@ class Loss(object):
         ciou_loss = object_mask * bbox_loss_scale * (1 - ciou)
 
         # angle loss
-        loss_re = tf.reduce_sum(tf.square(label_reim - pred_reim))
-        loss_im = tf.reduce_sum(tf.square(label_reim - pred_reim))
+        loss_reim = object_mask * bbox_loss_scale * 0.5 * tf.square(tf.square(label_reim - pred_reim))
 
         # confidence loss
         valid_boxes = tf.boolean_mask(label_xywh, tf.cast(object_mask, 'bool'))
@@ -92,10 +138,11 @@ class Loss(object):
         prob_loss = object_mask * tf.nn.sigmoid_cross_entropy_with_logits(labels=label_prob, logits=conv_prob)
 
         ciou_loss = tf.reduce_mean(tf.reduce_sum(ciou_loss, axis=[1, 2, 3, 4]))
+        reim_loss = tf.reduce_mean(tf.reduce_sum(loss_reim, axis=[1, 2, 3, 4]))
         conf_loss = tf.reduce_mean(tf.reduce_sum(conf_loss, axis=[1, 2, 3, 4]))
         prob_loss = tf.reduce_mean(tf.reduce_sum(prob_loss, axis=[1, 2, 3, 4]))
 
-        return ciou_loss, conf_loss, prob_loss
+        return ciou_loss, reim_loss, conf_loss, prob_loss, recall50, recall75, avg_iou
 
     def bbox_iou(self, boxes_1, boxes_2):
         """

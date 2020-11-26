@@ -19,10 +19,13 @@ from data import dataset, tfrecord
 
 
 def train():
-    start_step = 0
+    input_height = model_params['input_height']
+    input_width = model_params['input_width']
+    total_epoches = solver_params['total_epoches']
+    warm_up_epoch = solver_params['warm_up_epoch']
+    warm_up_lr = solver_params['warm_up_lr']
     log_step = solver_params['log_step']
     display_step = solver_params['display_step']
-    restore = solver_params['restore']
     batch_size = solver_params['batch_size']
     checkpoint_dir = path_params['checkpoints_dir']
     checkpoints_name = path_params['checkpoints_name']
@@ -35,20 +38,32 @@ def train():
     gpu_options = tf.GPUOptions(allow_growth=True)
     config = tf.ConfigProto(gpu_options=gpu_options)
 
+    # 定义输入的占位符
+    is_train = tf.placeholder(dtype=tf.bool, name="phase_train")
+    handle_flag = tf.placeholder(tf.string, [], name='iterator_handle_flag')
+
     # 解析得到训练样本以及标注
     data = tfrecord.TFRecord()
     train_tfrecord = os.path.join(tfrecord_dir, train_tfrecord_name)
     val_tfrecord = os.path.join(tfrecord_dir, val_tfrecord_name)
     train_dataset = data.create_dataset(train_tfrecord, batch_size=batch_size, is_shuffle=True, n_repeats=0)
     val_dataset = data.create_dataset(val_tfrecord, batch_size=batch_size, is_shuffle=False, n_repeats=-1)
-    train_iterator = train_dataset.make_initializable_iterator()
-    val_iterator = val_dataset.make_one_shot_iterator()
-    train_images, train_labels = train_iterator.get_next()
-    val_images, val_labels = val_iterator.get_next()
 
-    # 定义输入的占位符
-    #inputs = tf.placeholder(dtype=tf.float32, shape=[None, model_params['image_height'], model_params['image_width'], model_params['channels']], name='inputs')
-    #labels = tf.placeholder(dtype=tf.float32, shape=[None, model_params['grid_height'], model_params['grid_width'], model_params['anchor_num'], 8], name='labels')
+    # 创建训练和验证数据迭代器
+    train_iterator = train_dataset.make_initializable_iterator()
+    val_iterator = val_dataset.make_initializable_iterator()
+
+    # 创建训练和验证数据句柄
+    train_handle = train_iterator.string_handle()
+    val_handle = val_iterator.string_handle()
+
+    dataset_iterator = tf.data.Iterator.from_string_handle(handle_flag, train_dataset.output_types, train_dataset.output_shapes)
+    train_images, train_labels = dataset_iterator.get_next()
+
+    # tf.data pipeline will lose the data shape, so we need to set it manually
+    train_images.set_shape([None, input_height, input_width, 2])
+    for train_label in train_labels:
+        train_label.set_shape([None, None, None, None, None])
 
     # 构建网络
     network = Network(is_train=True)
@@ -56,32 +71,35 @@ def train():
 
     # 计算损失函数
     losses = Loss()
-    loss_list = losses.calc_loss(logits, preds, train_labels, 'loss')
-    loss_op = tf.losses.get_total_loss()
+    loss_op = losses.calc_loss(logits, preds, train_labels, 'loss')
 
     vars = tf.trainable_variables()
     l2_reg_loss_op = tf.add_n([tf.nn.l2_loss(var) for var in vars]) * solver_params['weight_decay']
-    total_loss = loss_op + l2_reg_loss_op
+    total_loss = loss_op[0] + l2_reg_loss_op
 
     # 配置tensorboard
-    tf.summary.scalar("giou_loss", loss_list[0])
-    tf.summary.scalar("confs_loss", loss_list[1])
-    tf.summary.scalar("class_loss", loss_list[2])
+    tf.summary.scalar("ciou_loss", loss_op[1])
+    tf.summary.scalar("reim_loss", loss_op[2])
+    tf.summary.scalar("confs_loss", loss_op[3])
+    tf.summary.scalar("class_loss", loss_op[4])
+    tf.summary.scalar("recall_50", loss_op[5])
+    tf.summary.scalar("recall_70", loss_op[6])
+    tf.summary.scalar("avg_iou", loss_op[7])
     tf.summary.scalar('total_loss', total_loss)
 
-    summary_op = tf.summary.merge_all()
-    summary_writer = tf.summary.FileWriter(log_dir, graph=tf.get_default_graph(), flush_secs=60)
-
     # 创建全局的步骤
-    global_step = tf.train.create_global_step()
+    global_step = tf.Variable(0, trainable=False, collections=[tf.GraphKeys.LOCAL_VARIABLES])
     # 设定变化的学习率
-    learning_rate = tf.train.exponential_decay(
+    learning_rate_exp = tf.train.exponential_decay(
         solver_params['learning_rate'],
         global_step,
         solver_params['decay_steps'],
         solver_params['decay_rate'],
         solver_params['staircase'],
         name='learning_rate')
+
+    learning_rate = tf.cond(tf.less(global_step, batch_size * warm_up_epoch), lambda: warm_up_lr, lambda: learning_rate_exp)
+    tf.summary.scalar('learning_rate', learning_rate)
 
     # 设置优化器
     update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
@@ -93,33 +111,36 @@ def train():
     save_variable = tf.global_variables()
     saver = tf.train.Saver(save_variable, max_to_keep=1000)
 
-    with tf.Session(config=config) as sess:
-        sess.run(tf.global_variables_initializer())
-        sess.run(train_iterator.initializer)
+    summary_op = tf.summary.merge_all()
+    summary_writer = tf.summary.FileWriter(log_dir, graph=tf.get_default_graph(), flush_secs=60)
 
+    with tf.Session(config=config) as sess:
+        sess.run([tf.global_variables_initializer(), tf.local_variables_initializer(), train_iterator.initializer])
+        train_handle_value, val_handle_value = sess.run([train_handle, val_handle])
         summary_writer.add_graph(sess.graph)
 
-        while True:
+        print('\n----------- start to train -----------\n')
+        for epoch in range(total_epoches):
             try:
-                start_time = time.time()
-
-                batch_images, batch_labels = sess.run([train_images, train_labels])
-                feed_dict = {inputs: image, outputs: label}
-                _, loss, current_global_step = sess.run([train_op, total_loss, global_step], feed_dict=feed_dict)
-
-                end_time = time.time()
+                _, summary, loss_, global_step_, lr = sess.run([train_op, summary_op, loss_op, global_step, learning_rate], feed_dict={is_train: True, handle_flag: train_handle_value})
+                summary_writer.add_summary(summary, global_step=global_step_)
 
                 if epoch % solver_params['save_step'] == 0:
                     save_path = saver.save(sess, os.path.join(checkpoint_dir, checkpoints_name), global_step=epoch)
                     print('Save modle into {}....'.format(save_path))
 
                 if epoch % log_step == 0:
-                    summary = sess.run(summary_op, feed_dict=feed_dict)
                     summary_writer.add_summary(summary, global_step=epoch)
 
                 if epoch % display_step == 0:
-                    per_iter_time = end_time - start_time
-                    print("step:{:.0f}  total_loss:  {:.5f} {:.2f} s/iter".format(epoch, loss, per_iter_time))
+                    print("Epoch: {}, global_step: {}, lr: {:.8f}, total_loss: {:.3f}, loss_ciou: {:.3f}, loss_reim: {:.3f}, loss_conf: {:.3f}, loss_class: {:.3f}, recall50: {:.3f}, recall75: {:.3f}, avg_iou: {:.3f}".format(
+                    epoch, global_step_, lr, loss_[0], loss_[1], loss_[2], loss_[3], loss_[4], loss_[5], loss_[6], loss_[7]))
+
+
+
+
+
+                sess.run(train_iterator.initializer)
             except tf.errors.OutOfRangeError:
                 break
 

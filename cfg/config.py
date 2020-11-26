@@ -49,9 +49,10 @@ solver_params = {
     'learning_rate': 0.001,        # 初始学习率
     'decay_steps': 30000,           #衰变步数
     'decay_rate': 0.1,              #衰变率
-    'staircase': True,
+    'warm_up_lr': 5e-5,
+    'warm_up_epoch': 1,
     'batch_size': 8,                # 每批次输入的数据个数
-    'max_iter': 100000,             # 训练的最大迭代次数
+    'total_epoches': 100000,        # 训练的最大迭代次数
     'save_step': 1000,              # 权重保存间隔
     'log_step': 1000,               # 日志保存间隔
     'display_step': 100,            # 显示打印间隔
