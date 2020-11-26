@@ -18,7 +18,7 @@ class TFRecord(object):
         self.data_path = path_params['data_path']
         self.tfrecord_dir = path_params['tfrecord_dir']
         self.train_tfrecord_name = path_params['train_tfrecord_name']
-        self.test_tfrecord_name = path_params['test_tfrecord_name']
+        self.val_tfrecord_name = path_params['val_tfrecord_name']
         self.input_width = model_params['input_width']
         self.input_height = model_params['input_height']
         self.channels = model_params['channels']
@@ -39,15 +39,15 @@ class TFRecord(object):
         trainval_path = os.path.join(self.data_path, 'ImageSets', 'Main', 'trainval.txt')
         split_ratio = 0.8
         train_file = os.path.join(self.tfrecord_dir, self.train_tfrecord_name)
-        test_file = os.path.join(self.tfrecord_dir, self.test_tfrecord_name)
+        val_file = os.path.join(self.tfrecord_dir, self.val_tfrecord_name)
         if os.path.exists(train_file):
             os.remove(train_file)
-        if os.path.exists(test_file):
-            os.remove(test_file)
+        if os.path.exists(val_file):
+            os.remove(val_file)
 
         # 循环写入每一帧点云转换的bev和标签到tfrecord文件
         train_writer = tf.python_io.TFRecordWriter(train_file)
-        test_writer = tf.python_io.TFRecordWriter(test_file)
+        val_writer = tf.python_io.TFRecordWriter(val_file)
         with open(trainval_path, 'r') as read:
             lines = read.readlines()
             train_sample_num = len(lines) * split_ratio
@@ -75,9 +75,9 @@ class TFRecord(object):
                 if count < train_sample_num:
                     train_writer.write(example.SerializeToString())
                 else:
-                    test_writer.write(example.SerializeToString())
+                    val_writer.write(example.SerializeToString())
         train_writer.close()
-        test_writer.close()
+        val_writer.close()
         print('Finish trainval.tfrecord Done')
 
     def parse_single_example(self, serialized_example):
