@@ -23,21 +23,21 @@ class Network(object):
 
     def forward(self, inputs):
         try:
-            self.conv_lbbox, self.conv_mbbox, self.conv_sbbox = self.build_network(inputs)
+            conv_lbbox, conv_mbbox, conv_sbbox = self.build_network(inputs)
         except:
             raise NotImplementedError("Can not build up yolov4 network!")
 
         with tf.variable_scope('pred_sbbox'):
-            self.pred_sbbox = self.reorg_layer(self.conv_sbbox, self.anchors[0], self.strides[0])
+            pred_sbbox = self.reorg_layer(conv_sbbox, self.anchors[0])
 
         with tf.variable_scope('pred_mbbox'):
-            self.pred_mbbox = self.reorg_layer(self.conv_mbbox, self.anchors[1], self.strides[1])
+            pred_mbbox = self.reorg_layer(conv_mbbox, self.anchors[1])
 
         with tf.variable_scope('pred_lbbox'):
-            self.pred_lbbox = self.reorg_layer(self.conv_lbbox, self.anchors[2], self.strides[2])
+            pred_lbbox = self.reorg_layer(conv_lbbox, self.anchors[2])
 
-        logits = [self.conv_lbbox, self.conv_mbbox, self.conv_sbbox]
-        preds = [self.pred_sbbox, self.pred_mbbox, self.pred_lbbox]
+        logits = [conv_sbbox, conv_mbbox, conv_lbbox]
+        preds = [pred_sbbox, pred_mbbox, pred_lbbox]
         return logits, preds
 
     def CSPDarknet53(self, inputs, scope='CSPDarknet53'):
@@ -83,7 +83,7 @@ class Network(object):
 
         return conv_lbbox, conv_mbbox, conv_sbbox
 
-    def reorg_layer(self, feature_maps, anchors, stride):
+    def reorg_layer(self, feature_maps, anchors):
         """
         解码网络输出的特征图
         :param feature_maps:网络输出的特征图
