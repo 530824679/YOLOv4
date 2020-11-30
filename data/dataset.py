@@ -59,9 +59,9 @@ class Dataset(object):
             raise KeyError("%s does not exist ... " %txt_path)
 
         label = self.load_label(txt_path)
-        bev_label = self.transform_bev_label(label, data_num)
+        bbox = self.transform_bev_label(label, data_num)
 
-        return bev_label
+        return bbox
 
     def load_pcd(self, pcd_path):
         pts = []
@@ -100,7 +100,6 @@ class Dataset(object):
         x_points = pts[:, 0]
         y_points = pts[:, 1]
         z_points = pts[:, 2]
-        i_points = pts[:, 3]
 
         # convert to pixel position values
         x_img = (-y_points / self.voxel_size).astype(np.int32)  # x axis is -y in LIDAR
@@ -108,7 +107,7 @@ class Dataset(object):
 
         # shift pixels to (0, 0)
         x_img -= int(np.floor(self.y_min / self.voxel_size))
-        y_img += int(np.ceil(self.x_max / self.voxel_size))
+        y_img += int(np.floor(self.x_max / self.voxel_size))
 
         # clip height value
         pixel_values = np.clip(a=z_points, a_min=self.z_min, a_max=self.z_max)
@@ -117,27 +116,19 @@ class Dataset(object):
         pixel_values = self.scale_to_255(pixel_values, min=self.z_min, max=self.z_max)
 
         # initalize empty array
-        x_max = 1 + math.ceil((self.y_max - self.y_min) / self.voxel_size)
-        y_max = 1 + math.ceil((self.x_max - self.x_min) / self.voxel_size)
+        x_max = math.ceil((self.y_max - self.y_min) / self.voxel_size)
+        y_max = math.ceil((self.x_max - self.x_min) / self.voxel_size)
 
         # Height Map
-        height_map = np.zeros((y_max, x_max))
+        height_map = np.zeros((y_max, x_max), dtype=np.float32)
         height_map[y_img, x_img] = pixel_values
 
         # save bev image
         image = Image.fromarray(height_map)
         image = image.convert('L')
-        image.save('/home/chenwei/HDD/livox_dl/LIVOX/bev_image/' + data_num + ".bmp")
+        image.save('/home/chenwei/HDD/livox_dl/LIVOX1/bev_image/' + data_num + ".bmp")
 
-        # Intensity Map
-        intensity_map = np.zeros((y_max, x_max))
-        intensity_map[y_img, x_img] = i_points
-
-        rgb_map = np.zeros((y_max, x_max, 2))
-        rgb_map[:, :, 0] = height_map  # g_map
-        rgb_map[:, :, 1] = intensity_map  # b_map
-
-        return rgb_map
+        return height_map
 
     def load_label(self, label_path):
         lines = [line.rstrip() for line in open(label_path)]
@@ -189,7 +180,7 @@ class Dataset(object):
         boxes_list = []
         boxes_num = label.shape[0]
 
-        txt_path = "/home/chenwei/HDD/livox_dl/LIVOX/bev_label/" + data_num + '.txt'
+        txt_path = "/home/chenwei/HDD/livox_dl/LIVOX1/bev_label/" + data_num + '.txt'
         f = open(txt_path, mode='w')
 
         for i in range(boxes_num):

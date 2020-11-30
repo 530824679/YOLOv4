@@ -45,7 +45,7 @@ def conv2d(inputs, filters_shape, trainable, downsample=False, activate='mish', 
             input_data = inputs
 
         weight = tf.get_variable(name='weight', dtype=tf.float32, trainable=True, shape=filters_shape, initializer=tf.random_normal_initializer(stddev=0.01))
-        conv = tf.nn.conv2d(input=input_data, filter=weight, strides=strides, padding=padding)
+        conv = tf.nn.conv2d(input=input_data, filter=weight, strides=strides, padding=padding, name=scope)
 
         if bn:
             conv = tf.layers.batch_normalization(conv, beta_initializer=tf.zeros_initializer(),

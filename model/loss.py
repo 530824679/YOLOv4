@@ -118,7 +118,7 @@ class Loss(object):
         loss_reim = object_mask * bbox_loss_scale * 0.5 * tf.square(tf.square(label_reim - pred_reim))
 
         # confidence loss
-        valid_boxes = tf.boolean_mask(label_xywh, tf.cast(object_mask, 'bool'))
+        valid_boxes = tf.boolean_mask(label_xywh[..., 0:4], tf.cast(object_mask[..., 0], 'bool'))
         bboxes = tf.concat([valid_boxes[:, 0:2], valid_boxes[:, 2:4]], axis=-1)
         # shape: [V, 2] ——> [1, V, 2]
         bboxes = tf.expand_dims(bboxes, 0)

@@ -22,10 +22,10 @@ class Network(object):
         self.upsample_method = model_params['upsample_method']
 
     def forward(self, inputs):
-        try:
-            conv_lbbox, conv_mbbox, conv_sbbox = self.build_network(inputs)
-        except:
-            raise NotImplementedError("Can not build up yolov4 network!")
+        #try:
+        conv_lbbox, conv_mbbox, conv_sbbox = self.build_network(inputs)
+        #except:
+        #    raise NotImplementedError("Can not build up yolov4 network!")
 
         with tf.variable_scope('pred_sbbox'):
             pred_sbbox = self.reorg_layer(conv_sbbox, self.anchors[0])
@@ -48,7 +48,7 @@ class Network(object):
         :return: 三个不同尺度的基础特征图输出
         """
         with tf.variable_scope(scope):
-            input_data = conv2d(inputs, filters_shape=(3, 3, 2, 32), trainable=self.is_train, scope='conv0')
+            input_data = conv2d(inputs, filters_shape=(3, 3, 1, 32), trainable=self.is_train, scope='conv0')
             input_data = csp_block(input_data, 64, 64, 64, 64, 64, 1, trainable=self.is_train, scope='csp_1')
             input_data = csp_block(input_data, 128, 64, 64, 64, 128, 2, trainable=self.is_train, scope='csp_2')
             input_data = csp_block(input_data, 256, 128, 128, 128, 256, 8, trainable=self.is_train, scope='csp_3')

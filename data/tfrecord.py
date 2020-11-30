@@ -26,11 +26,12 @@ class TFRecord(object):
         self.batch_size = solver_params['batch_size']
         self.dataset = Dataset()
 
-    # 数值形式的数据,首先转换为string,再转换为int形式进行保存
     def _int64_feature(self, value):
         return tf.train.Feature(int64_list=tf.train.Int64List(value=[value]))
 
-    # 数组形式的数据,首先转换为string,再转换为二进制形式进行保存
+    def _float_feature(self, value):
+        return tf.train.Feature(float_list=tf.train.FloatList(value=[value]))
+
     def _bytes_feature(self, value):
         return tf.train.Feature(bytes_list=tf.train.BytesList(value=[value]))
 
@@ -54,23 +55,20 @@ class TFRecord(object):
             for count, line in enumerate(lines):
                 index = line[0:-1]
                 image = self.dataset.load_bev_image(index)
-                label = self.dataset.load_bev_label(index)
+                bbox = self.dataset.load_bev_label(index)
 
-                if len(label) == 0:
+                if len(bbox) == 0:
                     continue
 
-                y_true_13, y_true_26, y_true_52 = self.dataset.preprocess_true_boxes(label)
-                image_string = image.tostring()
-                y_true_13_string = y_true_13.tostring()
-                y_true_26_string = y_true_26.tostring()
-                y_true_52_string = y_true_52.tostring()
+                image_string = image.tobytes()
+                bbox_string = bbox.tobytes()
+                bbox_shape = bbox.shape
 
                 example = tf.train.Example(features=tf.train.Features(
                     feature={
                         'image': tf.train.Feature(bytes_list=tf.train.BytesList(value=[image_string])),
-                        'y_true_13': tf.train.Feature(bytes_list=tf.train.BytesList(value=[y_true_13_string])),
-                        'y_true_26': tf.train.Feature(bytes_list=tf.train.BytesList(value=[y_true_26_string])),
-                        'y_true_52': tf.train.Feature(bytes_list=tf.train.BytesList(value=[y_true_52_string]))
+                        'bbox': tf.train.Feature(bytes_list=tf.train.BytesList(value=[bbox_string])),
+                        'bbox_shape': tf.train.Feature(int64_list=tf.train.Int64List(value=bbox_shape))
                     }))
                 if count < train_sample_num:
                     train_writer.write(example.SerializeToString())
@@ -90,19 +88,21 @@ class TFRecord(object):
             serialized_example,
             features={
                 'image': tf.FixedLenFeature([], tf.string),
-                'label': tf.FixedLenFeature([], tf.string)
+                'bbox': tf.FixedLenFeature([], tf.string),
+                'bbox_shape': tf.FixedLenFeature(shape=(2,), dtype=tf.int64)
             })
 
         image = features['image']
-        label = features['label']
+        bbox = features['bbox']
+        bbox_shape = features['bbox_shape']
 
         # 进行解码
         tf_image = tf.decode_raw(image, tf.float32)
-        tf_label = tf.decode_raw(label, tf.float32)
+        tf_bbox = tf.decode_raw(bbox, tf.float32)
 
         # 转换为网络输入所要求的形状
         tf_image = tf.reshape(tf_image, [self.input_height, self.input_width, self.channels])
-        tf_label = tf.reshape(tf_label, [-1, 7])
+        tf_label = tf.reshape(tf_bbox, bbox_shape)
 
         # preprocess
         tf_image = tf_image / 255
@@ -110,7 +110,7 @@ class TFRecord(object):
 
         return tf_image, y_true_19, y_true_38, y_true_76
 
-    def create_dataset(self, filenames, batch_size=8, is_shuffle=False, n_repeats=0):
+    def create_dataset(self, filenames, batch_size=1, is_shuffle=False, n_repeats=0):
         """
         :param filenames: record file names
         :param batch_size: batch size
@@ -120,19 +120,48 @@ class TFRecord(object):
         """
         dataset = tf.data.TFRecordDataset(filenames)
         dataset = dataset.repeat(n_repeats)
-        dataset = dataset.map(lambda x: self.parse_single_example(x), num_parallel_calls = 4)
+        dataset = dataset.map(self.parse_single_example, num_parallel_calls = 1)
         if is_shuffle:
-            dataset = dataset.shuffle(100)
+            dataset = dataset.shuffle(10)
         dataset = dataset.batch(batch_size)
         return dataset
 
 if __name__ == '__main__':
     tfrecord = TFRecord()
-    tfrecord.create_tfrecord()
+    #tfrecord.create_tfrecord()
 
-    # file = './tfrecord/train.tfrecord'
-    # tfrecord = TFRecord()
-    # batch_example, batch_label = tfrecord.parse_batch_examples(file)
+    import cv2
+    import utils.visualize as v
+    record_file = '/home/chenwei/HDD/livox_dl/LIVOX1/tfrecord/train.tfrecord'
+    data_train = tfrecord.create_dataset(record_file, batch_size=2, is_shuffle=False, n_repeats=20)
+    # data_train = tf.data.TFRecordDataset(record_file)
+    # data_train = data_train.map(tfrecord.parse_single_example)
+    iterator = data_train.make_one_shot_iterator()
+    batch_image, y_true_19, y_true_38, y_true_76 = iterator.get_next()
+
+    with tf.Session() as sess:
+        for i in range(20):
+            try:
+                image, true_19, true_38, true_76 = sess.run([batch_image, y_true_19, y_true_38, y_true_76])
+
+                # for boxes in label:
+                #     v.draw_rotated_box(image, int(boxes[0]), int(boxes[1]), int(boxes[2]), int(boxes[3]), boxes[5],
+                #                        (255, 0, 0))
+                # cv2.imshow("image", image)
+                # cv2.waitKey(0)
+                print(np.shape(image))
+            except tf.errors.OutOfRangeError:
+                print("Done!!!")
+                break
+
+    # import cv2
+    # import utils.visualize as v
+    # record_file = '/home/chenwei/HDD/livox_dl/LIVOX1/tfrecord/train.tfrecord'
+    # reader = tf.TFRecordReader()
+    # filename_queue = tf.train.string_input_producer([record_file])
+    #
+    # _, serialized_example = reader.read(filename_queue)
+    # batch_image, y_true_19, y_true_38, y_true_76 = tfrecord.parse_single_example(serialized_example)
     # with tf.Session() as sess:
     #
     #     init_op = tf.global_variables_initializer()
@@ -140,17 +169,13 @@ if __name__ == '__main__':
     #
     #     coord = tf.train.Coordinator()
     #     threads = tf.train.start_queue_runners(coord=coord)
-    #     for i in range(1):
-    #         example, label = sess.run([batch_example, batch_label])
-    #         print(label)
-    #         print(label.astype(np.float32))
-    #         box = label[0, ]
-    #         # cv2.imshow('w', example[0, :, :, :])
+    #     for i in range(20):
+    #         image, true_19, true_38, true_76 = sess.run([batch_image, y_true_19, y_true_38, y_true_76])
+    #
+    #         # for boxes in label:
+    #         #     v.draw_rotated_box(image, int(boxes[0]), int(boxes[1]), int(boxes[2]), int(boxes[3]), boxes[5], (255, 0, 0))
+    #         # cv2.imshow("image", image)
     #         # cv2.waitKey(0)
-    #         print(np.shape(example), np.shape(label))
-    #     # cv2.imshow('img', example)
-    #     # cv2.waitKey(0)
-    #     # print(type(example))
+    #         print(np.shape(image))
     #     coord.request_stop()
-    #     # coord.clear_stop()
     #     coord.join(threads)

@@ -9,10 +9,10 @@
 import os
 
 path_params = {
-    'data_path': '/home/chenwei/HDD/livox_dl/LIVOX',
+    'data_path': '/home/chenwei/HDD/livox_dl/LIVOX1',
     'checkpoints_dir': './checkpoints',
     'logs_dir': './logs',
-    'tfrecord_dir': '/home/chenwei/HDD/livox_dl/LIVOX/tfrecord',
+    'tfrecord_dir': '/home/chenwei/HDD/livox_dl/LIVOX1/tfrecord',
     'checkpoints_name': 'model.ckpt',
     'train_tfrecord_name': 'train.tfrecord',
     'val_tfrecord_name': 'val.tfrecord',
@@ -32,7 +32,7 @@ data_params = {
 model_params = {
     'input_height': 608,                                # 图片高度
     'input_width': 608,                                 # 图片宽度
-    'channels': 2,                                      # 输入图片通道数
+    'channels': 1,                                      # 输入图片通道数
     'anchors': [[5, 5], [7, 15],
                 [17, 41], [18, 44],
                 [19, 49], [28, 104]],
@@ -47,12 +47,13 @@ model_params = {
 
 solver_params = {
     'gpu': '0',                     # 使用的gpu索引
-    'learning_rate': 0.001,        # 初始学习率
+    'learning_rate': 0.0001,        # 初始学习率
     'decay_steps': 30000,           #衰变步数
     'decay_rate': 0.1,              #衰变率
     'warm_up_lr': 5e-5,
     'warm_up_epoch': 1,
-    'batch_size': 8,                # 每批次输入的数据个数
+    'staircase': True,
+    'batch_size': 2,                # 每批次输入的数据个数
     'total_epoches': 100000,        # 训练的最大迭代次数
     'val_step': 10,                 # 评估间隔
     'save_step': 1000,              # 权重保存间隔
